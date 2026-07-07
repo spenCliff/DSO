@@ -1,0 +1,28 @@
+servers:
+    iridis5_a:
+        hostname: "iridis5_a.soton.ac.uk"
+        scheduler: "slurm"
+        max_walltime: "60:00:00"
+        max_queued_jobs: 10
+        partitions: ["batch"]
+
+    iridis5_b:
+        hostname: "iridis5_b.soton.ac.uk"
+        scheduler: "slurm"
+        max_walltime: "60:00:00"
+        max_queued_jobs: 10
+        partitions: ["batch"]
+
+    iridis5_c:
+        hostname: "iridis5_c.soton.ac.uk"
+        scheduler: "slurm"
+        max_walltime: "60:00:00"
+        max_queued_jobs: 10
+        partitions: ["batch"]
+
+    iridis6:
+        hostname: "iridis6.soton.ac.uk"
+        scheduler: "slurm"
+        max_walltime: "60:00:00"
+        max_queued_jobs: 10
+        partitions: ["batch"]
