@@ -1,1 +1,71 @@
- 
+# 1. Project Specific - Dynamic Workspace
+# NEVER track user execution campaigns, heavy CAD variants, or simulation logs
+storage/
+runs/
+
+# 2. Engineering Software Files
+# Ignore heavy simulation files, meshes, and checkpoints
+*.sim
+*.sim~
+*.bak
+*.vrml
+*.dcat
+
+# Ignore geometry files if users accidentally place them outside of /storage
+*.step
+*.stp
+*.iges
+*.igs
+*.stl
+*.parasolid
+*.x_t
+*.x_b
+
+# 3. Python Standard System Files
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+bin/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# 4. HPC / Cluster / Linux Specific
+# Ignore core dumps if a simulation or binary crashes violently on a compute node
+core
+vgcore.*
+
+# Temporary or editor swap files
+*.swp
+*~
+.DS_Store
+
+# Optional: If you write cluster batch stdout/stderr logs to your root instead of storage
+*.out
+*.err
