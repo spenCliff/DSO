@@ -18,8 +18,6 @@ NON_AX_FAILURE_STATES = {"SSH", "SCP", "SBATCH", "SUBMIT_UNKNOWN", "POLL_FAILED"
 BAD_BACKEND_STATES = {"SSH", "SCP", "SBATCH", "SUBMIT_UNKNOWN", "POLL_FAILED"}
 
 
-# HELPERS
-
 def safe_float(x, default: float = 0.0) -> float:
     try:
         return float(x)
@@ -71,8 +69,6 @@ def set_tracking_row(
         row["status_at_report"] = str(status_at_report)
 
 
-# CORE AX FACTORY (FULLY DYNAMIC)
-
 def load_or_create_ax_client(
     state_json: Path, 
     experiment_name: str, 
@@ -80,9 +76,6 @@ def load_or_create_ax_client(
     objectives_config: dict, 
     random_seed: int
 ) -> AxClient:
-    """Creates or loads an AxClient dynamically configured by runtime settings."""
-    
-    # Re-map the flat configuration settings into explicit Ax objective definitions
     ax_objectives = {
         metric_name: ObjectiveProperties(minimize=props.get("minimize", True))
         for metric_name, props in objectives_config.items()
@@ -105,8 +98,6 @@ def load_or_create_ax_client(
     ax_client.save_to_json_file(filepath=str(state_json))
     return ax_client
 
-
-# SELECTION GUARD LOGIC
 
 def next_trial_id(progress: Dict[int, dict]) -> int:
     return 1 if not progress else max(progress) + 1
@@ -136,8 +127,6 @@ def backend_unhealthy(progress: Dict[int, dict]) -> bool:
     return any(r.get("status", "") == "FAILED" and (r.get("state") or "").strip().upper() in BAD_BACKEND_STATES for r in progress.values())
 
 
-# METRIC EXTRACTION & EVALUATION
-
 def report_completed_trial(
     ax_client: AxClient,
     trial_id: int,
@@ -145,7 +134,6 @@ def report_completed_trial(
     progress_row: dict,
     objectives_config: dict,
 ) -> None:
-    """Dynamically parses and reads whatever metrics are defined in the config."""
     raw_data = {}
     log_strings = []
 
@@ -160,7 +148,6 @@ def report_completed_trial(
 
 
 def report_failed_trial(ax_client: AxClient, trial_id: int, ax_trial_index: int, objectives_config: dict) -> None:
-    # Attempt Ax's direct failure classification flag
     for method_name in ("log_trial_failure", "mark_trial_failed"):
         method = getattr(ax_client, method_name, None)
         if method is not None:
@@ -171,19 +158,13 @@ def report_failed_trial(ax_client: AxClient, trial_id: int, ax_trial_index: int,
             except Exception:
                 pass
 
-    # Fallback to structural penalty arrays
     raw_data = {metric: (props.get("penalty_value", -1.0e9), 0.0) for metric, props in objectives_config.items()}
     ax_client.complete_trial(trial_index=ax_trial_index, raw_data=raw_data)
     print(f"[AX] Failed fallback tracking penalties enforced for trial_id={trial_id:04d}")
 
 
-# MAIN ENTRY EXECUTION FRAME
-
-def run_optimisation(campaign_id: str, campaign_config: dict) -> None:
-    """Executes the dynamic optimization routine step for any configuration bounds."""
-    
-    # 1. Establish Campaign Environment Context Maps
-    campaign_dir = PROJECT_ROOT / "storage" / "campaigns" / campaign_id
+def run_optimisation_pass(username: str, campaign_id: str, campaign_config: dict) -> None:
+    campaign_dir = PROJECT_ROOT / "storage" / "campaigns" / username / campaign_id
     database_dir = campaign_dir / "runs"
     runs_ax_dir = campaign_dir / "ax_state"
 
@@ -195,20 +176,21 @@ def run_optimisation(campaign_id: str, campaign_config: dict) -> None:
     ax_state_json = runs_ax_dir / "ax_state.json"
     ax_tracking_csv = runs_ax_dir / "ax_tracking.csv"
 
-    # 2. Extract Configuration Framework Strategy
     experiment_name = campaign_config.get("campaign_settings", {}).get("name", f"DSO_{campaign_id}")
-    random_seed = campaign_config.get("optimization_bounds", {}).get("solver_settings", {}).get("random_seed", 123)
-    max_ax_active = campaign_config.get("optimization_bounds", {}).get("solver_settings", {}).get("max_parallel_slots", 6)
-    max_new_per_pass = campaign_config.get("optimization_bounds", {}).get("solver_settings", {}).get("max_new_trials_per_pass", 6)
+    bounds_cfg = campaign_config.get("optimization_bounds", {})
+    solver_cfg = bounds_cfg.get("solver_settings", {})
+    
+    random_seed = solver_cfg.get("random_seed", 123)
+    max_ax_active = solver_cfg.get("max_parallel_slots", 6)
+    max_new_per_pass = solver_cfg.get("max_new_trials_per_pass", 6)
 
-    ax_parameters = campaign_config.get("optimization_bounds", {}).get("parameters", [])
-    objectives_config = campaign_config.get("optimization_bounds", {}).get("objectives", {})
+    ax_parameters = bounds_cfg.get("parameters", [])
+    objectives_config = bounds_cfg.get("objectives", {})
 
-    # Extract clean parameter naming registry map lists
     full_param_names = [p["name"] for p in ax_parameters]
+    metric_names = list(objectives_config.keys())
     baseline_defaults = {p["name"]: p.get("baseline", 0.0) for p in ax_parameters}
 
-    # 3. Spin up Experiment client interface
     ax_client = load_or_create_ax_client(
         state_json=ax_state_json,
         experiment_name=experiment_name,
@@ -217,10 +199,9 @@ def run_optimisation(campaign_id: str, campaign_config: dict) -> None:
         random_seed=random_seed
     )
 
-    progress = load_progress_only(progress_csv, full_param_names)
+    progress = load_progress_only(progress_csv, full_param_names, metric_names)
     tracking = load_tracking(ax_tracking_csv)
 
-    # --- STEP A: PROCESS PIPELINE RESULTS BACK INTO THE TRACKER ENGINE ---
     reported_now = 0
     for trial_id in sorted(progress):
         row = progress[trial_id]
@@ -247,8 +228,7 @@ def run_optimisation(campaign_id: str, campaign_config: dict) -> None:
     save_tracking(ax_tracking_csv, tracking)
     ax_client.save_to_json_file(filepath=str(ax_state_json))
 
-    # --- STEP B: CHECK SLOTS AND POPULATE NEW CANDIDATE PIPELINES ---
-    progress = load_progress_only(progress_csv, full_param_names)
+    progress = load_progress_only(progress_csv, full_param_names, metric_names)
 
     if backend_unhealthy(progress):
         print("[INFO] Cluster transport nodes unhealthy. Pausing discovery generations.")
@@ -269,7 +249,6 @@ def run_optimisation(campaign_id: str, campaign_config: dict) -> None:
         except MaxParallelismReachedException:
             break
 
-        # Map dynamic modifications over standard default configurations
         full_params = dict(baseline_defaults)
         for name in full_param_names:
             if name in params:
@@ -277,14 +256,13 @@ def run_optimisation(campaign_id: str, campaign_config: dict) -> None:
 
         trial_id = next_trial_id(progress)
 
-        # Construct completely generalized, clean tracking template entries
         progress[trial_id] = {
             "trial_id": str(trial_id),
             "case_name": f"ax_{ax_trial_index:04d}",
             "status": "PENDING",
             "state": "QUEUED_BY_AX",
             "reason": "Acquisition parameter choice enqueued",
-            **{k: "" for k in objectives_config.keys()}, # Generates columns for variables dynamically!
+            **{k: "" for k in objectives_config.keys()},
             **{k: str(v) for k, v in full_params.items()},
         }
 
@@ -292,21 +270,20 @@ def run_optimisation(campaign_id: str, campaign_config: dict) -> None:
         created_now += 1
         print(f"[AX] Discovered Candidate trial_id={trial_id:04d} -> Index {ax_trial_index}")
 
-    save_progress(progress_csv, progress_xlsx, progress, full_param_names)
+    save_progress(progress_csv, progress_xlsx, progress, full_param_names, metric_names)
     save_tracking(ax_tracking_csv, tracking)
     ax_client.save_to_json_file(filepath=str(ax_state_json))
     print(f"[INFO] Optimisation check finished. Reported: {reported_now} | Generated New: {created_now}")
 
 
-# Terminal CLI Command Execution Entry Point Wrapper Suffix
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--username", required=True)
     parser.add_argument("--campaign-id", required=True)
     args = parser.parse_args()
 
-    # Read from configuration directory file dumped by orchestrator
-    runtime_config_path = PROJECT_ROOT / "storage" / "campaigns" / args.campaign_id / "inputs" / "active_config.json"
+    runtime_config_path = PROJECT_ROOT / "storage" / "campaigns" / args.username / args.campaign_id / "inputs" / "active_config.json"
     with open(runtime_config_path, "r") as f:
         loaded_config = json.load(f)
 
-    run_optimisation(campaign_id=args.campaign_id, campaign_config=loaded_config)
+    run_optimisation_pass(username=args.username, campaign_id=args.campaign_id, campaign_config=loaded_config)

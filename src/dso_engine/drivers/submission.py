@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 from dso.utils.geometry import generate_geom
@@ -7,6 +9,35 @@ from dso.utils.hpc import HPCConfig, submit_slurm_trial, check_cluster_health
 from dso.utils.progress import load_progress_only, save_progress, set_row, get_progress_paths
 
 RETRYABLE_FAILURE_STATES = {"SSH", "SCP", "SBATCH", "SUBMIT_UNKNOWN"}
+
+CORE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CORE_DIR.parent.parent.parent
+CAD_SYS_LOCK = PROJECT_ROOT / "storage" / "sw_cad_engine.lock"
+
+
+def acquire_cad_lock(lock_path: Path, timeout_s: int = 600) -> bool:
+    """Blocks until it successfully creates a lock file, ensuring single-user CAD access."""
+    start_time = time.time()
+    while True:
+        try:
+            # 'x' mode is atomic at the OS level: fails if file already exists
+            with open(lock_path, "x") as f:
+                f.write(f"Locked by PID {os.getpid()} at {time.time()}\n")
+            return True
+        except FileExistsError:
+            if time.time() - start_time > timeout_s:
+                raise TimeoutError("Timed out waiting for SolidWorks CAD Engine process lock to release.")
+            print("[CAD LOCK] SolidWorks busy processing another campaign. Retrying in 5 seconds...")
+            time.sleep(5)
+
+
+def release_cad_lock(lock_path: Path) -> None:
+    """Safely cleans up the lock file."""
+    try:
+        if lock_path.exists():
+            lock_path.unlink()
+    except Exception as e:
+        print(f"[WARN] Failed to delete CAD lockfile: {e}")
 
 
 def count_active_by_cluster(progress: dict[int, dict], cluster_name: str) -> dict[str, int]:
@@ -73,8 +104,12 @@ def prepare_geometry(
 ) -> bool:
     row = progress[trial_id]
     retry_count = int(row.get("retry_count", "0") or 0)
+    
+    acquire_cad_lock(CAD_SYS_LOCK)
+    
     try:
         params = {name: float(row[name]) for name in param_names}
+        
         cad_result = generate_geom(
             username=username,
             campaign_id=campaign_id,
@@ -83,6 +118,7 @@ def prepare_geometry(
             params=params,
             keep_trial_part=True
         )
+        
         exported_path = Path(cad_result["geom_xt_path"]).resolve()
         set_row(
             progress,
@@ -95,6 +131,7 @@ def prepare_geometry(
         )
         save_progress(csv_paths[0], csv_paths[1], progress, param_names, metric_names)
         return True
+        
     except KeyboardInterrupt:
         save_progress(csv_paths[0], csv_paths[1], progress, param_names, metric_names)
         raise
@@ -113,6 +150,9 @@ def prepare_geometry(
         save_progress(csv_paths[0], csv_paths[1], progress, param_names, metric_names)
         print(f"[ERROR] CAD failed for trial {trial_id:04d}: {exc}")
         return False
+        
+    finally:
+        release_cad_lock(CAD_SYS_LOCK)
 
 
 def run_submission_pass(
@@ -124,12 +164,10 @@ def run_submission_pass(
     max_active: int,
     max_retries: int,
 ) -> None:
-    # 1. Dynamically read parameter list and objective names from campaign dictionary
     param_names = [p["name"] for p in campaign_config["optimization_bounds"].get("parameters", [])]
     metric_names = list(campaign_config["optimization_bounds"].get("objectives", {}).keys())
     master_part_name = campaign_config["optimization_bounds"].get("geometry_settings", {}).get("master_part_name", "SP_Geom.SLDART")
 
-    # 2. Derive progress database paths based on campaign directories
     progress_csv, progress_xlsx = get_progress_paths(username, campaign_id)
     csv_paths = (progress_csv, progress_xlsx)
     
@@ -138,7 +176,6 @@ def run_submission_pass(
         print(f"[INFO] No progress entries found for campaign {campaign_id}.")
         return
 
-    # 3. Guard statement checking live cluster availability limits
     cluster_counts = count_active_by_cluster(progress, cluster_name)
     total_active = cluster_counts.get(cluster_name, 0)
     total_free = max(0, max_active - total_active)
@@ -147,7 +184,6 @@ def run_submission_pass(
         print(f"[INFO] Cluster {cluster_name} is currently full ({total_active}/{max_active} slots used).")
         return
 
-    # 4. Submission process loop over pending trials
     for trial_id in sorted(progress):
         cluster_counts = count_active_by_cluster(progress, cluster_name)
         total_active = cluster_counts.get(cluster_name, 0)
@@ -162,7 +198,6 @@ def run_submission_pass(
 
         status = row["status"]
 
-        # Handle geometry staging 
         if status == "PENDING":
             if not prepare_geometry(username, campaign_id, master_part_name, progress, trial_id, param_names, metric_names, csv_paths, "CAD export complete"):
                 continue
@@ -200,7 +235,6 @@ def run_submission_pass(
         if chosen is None:
             break
 
-        # Remotely dispatch simulation bundle using core utilities
         try:
             geom_xt = Path(row["geom_xt_path"])
 
