@@ -2,6 +2,7 @@
 # NEVER track user execution campaigns, heavy CAD variants, or simulation logs
 storage/
 runs/
+base/
 
 # 2. Engineering Software Files
 # Ignore heavy simulation files, meshes, and checkpoints

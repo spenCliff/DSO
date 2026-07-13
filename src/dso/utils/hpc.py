@@ -141,8 +141,8 @@ def check_job_state(cfg: HPCConfig, job_id: str, remote_dir: str, jobname: str) 
     return "RUNNING", slurm_out
 
 def submit_slurm_trial(cfg: HPCConfig, trial_id: int, local_payload: Path, remote_payload_name: str) -> tuple[str, str, str]:
-    jobname = f"DSO_T{trial_id:04d}"
-    remote_dir = f"{cfg.remote_base}/trial_{trial_id:04d}"
+    jobname = f"DSO_T{trial_id:03d}"
+    remote_dir = f"{cfg.remote_base}/trial_{trial_id:03d}"
     
     _ssh(cfg, f"bash -lc 'mkdir -p {remote_dir}'")
     _scp_to(cfg, local_payload, f"{remote_dir}/{remote_payload_name}")

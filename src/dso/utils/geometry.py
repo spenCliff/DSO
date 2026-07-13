@@ -152,7 +152,8 @@ def generate_geom(
     keep_trial_part: bool = True
 ) -> dict:
 
-    campaign_dir = PROJECT_ROOT / "storage" / "campaigns" / username / campaign_id
+    # Swapped username and "campaigns" to resolve the path error
+    campaign_dir = PROJECT_ROOT / "storage" / username / "campaigns" / campaign_id
     master_part_path = campaign_dir / "inputs" / master_part_name
 
     _ensure_exists(master_part_path, "Master SolidWorks part")

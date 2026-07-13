@@ -41,11 +41,15 @@ def progress_fieldnames(param_names: list[str], metric_names: list[str]) -> list
     ]
     return base_fields + metric_names + param_names
 
-
 def get_progress_paths(username: str, campaign_id: str) -> tuple[Path, Path]:
-    campaign_dir = PROJECT_ROOT / "storage" / "campaigns" / username / campaign_id / "runs"
-    campaign_dir.mkdir(parents=True, exist_ok=True)
+    campaign_dir = get_runs_dir(username, campaign_id)
     return campaign_dir / "progress_live.csv", campaign_dir / "progress_live.xlsx"
+
+
+def get_runs_dir(username: str, campaign_id: str) -> Path:
+    campaign_dir = PROJECT_ROOT / "storage" / username / "campaigns" / campaign_id / "runs"
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    return campaign_dir
 
 
 def atomic_write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:

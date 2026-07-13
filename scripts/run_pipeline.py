@@ -1,12 +1,16 @@
+import sys
 from pathlib import Path
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 from dso.core.orchestrator import start_pipeline
 
 def launch_campaign(username: str, campaign_id: str, campaign_iterations: int):
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent
 
-    campaign_dir = project_root / "storage" / "campaigns" / username / campaign_id
+    campaign_dir = project_root / "storage" / username /"campaigns" / campaign_id
     inputs_dir = campaign_dir / "inputs"
     runs_dir = campaign_dir / "runs"
 
@@ -33,4 +37,4 @@ def launch_campaign(username: str, campaign_id: str, campaign_iterations: int):
     )
 
 if __name__ == "__main__":
-    launch_campaign(username="ab12c34", campaign_id="campaign_001", campaign_iterations=25)
+    launch_campaign(username="sc14g23", campaign_id="campaign_001", campaign_iterations=25)
